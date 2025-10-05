@@ -1,0 +1,10 @@
+Flask>=3.0.0
+flask-cors>=4.0.0
+requests>=2.25.0
+playwright>=1.40.0
+rich>=13.0.0
+yt-dlp>=2023.12.30
+gunicorn>=21.2.0
+psycopg2-binary>=2.9.7
+SQLAlchemy>=2.0.0
+python-dotenv>=1.0.0
