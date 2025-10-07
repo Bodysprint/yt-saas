@@ -9,13 +9,18 @@ import hashlib
 from logger import logger
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, String, Boolean, Integer, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from functools import wraps
 from datetime import datetime
+from supabase import create_client, Client
 
 # Charger les variables d'environnement
 load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 
@@ -28,9 +33,20 @@ ADMIN_KEY = os.getenv('ADMIN_KEY', 'dev-admin-key')
 app.config['SECRET_KEY'] = SECRET_KEY
 
 # Configuration SQLAlchemy (connexion sécurisée Supabase IPv4)
+<<<<<<< HEAD
 engine = create_engine(
     DATABASE_URL,
     connect_args={"sslmode": "require"},
+=======
+# Détecter le type de base de données pour les arguments de connexion
+connect_args = {}
+if DATABASE_URL.startswith('postgresql://'):
+    connect_args = {"sslmode": "require"}
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+>>>>>>> 43cc4e3 (final deployment - ready for Render)
     pool_pre_ping=True,
     pool_size=5,          # Taille modérée pour Render (évite surcharge)
     max_overflow=10       # Connexions temporaires supplémentaires
@@ -52,8 +68,8 @@ class User(Base):
 # Créer les tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 
-# Configuration CORS pour les origines frontend
-CORS(app, resources={r"/api/*": {"origins": ["http://127.0.0.1:5173", "http://localhost:5173"]}},
+# Configuration CORS pour les origines frontend (production + développement)
+CORS(app, resources={r"/api/*": {"origins": ["*"]}},
      supports_credentials=True)
 
 # Chemins basés sur le répertoire du script
@@ -250,67 +266,52 @@ def debug():
     return jsonify(files_status)
 
 @app.route("/api/auth/register", methods=["POST"])
-def register():
-    """Inscription d'un nouvel utilisateur avec SQLAlchemy"""
+def register_supabase():
+    """Inscription d'un utilisateur avec Supabase Auth"""
     data = request.get_json()
     email = data.get("email")
     password = data.get("password")
-    
+
     if not email or not password:
         return jsonify({"error": "Email et mot de passe requis"}), 400
-    
-    # Vérifier si l'utilisateur existe déjà
-    existing_user = get_user_by_email(email)
-    if existing_user:
-        return jsonify({"error": "Utilisateur déjà existant"}), 400
-    
+
     try:
-        # Créer le nouvel utilisateur
-        user = create_user(email, hash_password(password))
-        logger.log_success(f"Nouvel utilisateur créé: {email}")
-        
+        response = supabase.auth.sign_up({"email": email, "password": password})
         return jsonify({
             "message": "Inscription réussie",
-            "user": {
-                "email": user.email,
-                "premium": user.premium,
-                "trial_count": user.trial_count
-            }
+            "user": getattr(response, "user", None)
         }), 201
     except Exception as e:
-        logger.log_error(f"Erreur lors de la création de l'utilisateur: {str(e)}")
-        return jsonify({"error": "Erreur lors de l'inscription"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/auth/login", methods=["POST"])
-def login():
-    """Connexion d'un utilisateur avec SQLAlchemy"""
+def login_supabase():
+    """Connexion d'un utilisateur via Supabase Auth"""
     data = request.get_json()
     email = data.get("email")
     password = data.get("password")
-    
+
     if not email or not password:
         return jsonify({"error": "Email et mot de passe requis"}), 400
-    
-    # Récupérer l'utilisateur depuis la base de données
-    user = get_user_by_email(email)
-    if not user:
-        return jsonify({"error": "Utilisateur non trouvé"}), 404
-    
-    if user.password_hash != hash_password(password):
-        return jsonify({"error": "Mot de passe incorrect"}), 401
-    
-    logger.log_success(f"Connexion réussie: {email}")
-    
-    return jsonify({
-        "message": "Connexion réussie",
-        "token": "dev-token",  # Token simple pour le MVP
-        "user": {
-            "email": user.email,
-            "premium": user.premium,
-            "trial_count": user.trial_count,
-            "trial_limit": TRIAL_LIMIT
-        }
-    }), 200
+
+    try:
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        return jsonify({
+            "message": "Connexion réussie",
+            "session": getattr(response, "session", None),
+            "user": getattr(response, "user", None)
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+@app.route("/api/auth/me", methods=["GET"])
+def get_me():
+    """Récupère l'utilisateur actuellement connecté"""
+    try:
+        user = supabase.auth.get_user()
+        return jsonify(user), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
 
 @app.route("/api/scrape/channel", methods=["POST"])
 def scrape_channel():
