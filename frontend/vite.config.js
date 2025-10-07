@@ -7,12 +7,13 @@ export default defineConfig({
     postcss: './postcss.config.cjs',
   },
   server: { 
-    port: 3000 
+    host: true,
+    port: 5173 
   },
-  // Configuration pour Netlify
+  // Configuration pour Render
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'terser'
+    minify: 'esbuild'
   }
 })

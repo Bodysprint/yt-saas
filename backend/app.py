@@ -9,7 +9,7 @@ import hashlib
 from logger import logger
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, String, Boolean, Integer, DateTime
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from functools import wraps
 from datetime import datetime
@@ -27,8 +27,19 @@ ADMIN_KEY = os.getenv('ADMIN_KEY', 'dev-admin-key')
 
 app.config['SECRET_KEY'] = SECRET_KEY
 
-# Configuration SQLAlchemy
-engine = create_engine(DATABASE_URL)
+# Configuration SQLAlchemy (connexion sécurisée Supabase IPv4)
+# Détecter le type de base de données pour les arguments de connexion
+connect_args = {}
+if DATABASE_URL.startswith('postgresql://'):
+    connect_args = {"sslmode": "require"}
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_size=5,          # Taille modérée pour Render (évite surcharge)
+    max_overflow=10       # Connexions temporaires supplémentaires
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -46,8 +57,8 @@ class User(Base):
 # Créer les tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 
-# Configuration CORS pour les origines frontend
-CORS(app, resources={r"/api/*": {"origins": ["http://127.0.0.1:5173", "http://localhost:5173"]}},
+# Configuration CORS pour les origines frontend (production + développement)
+CORS(app, resources={r"/api/*": {"origins": ["*"]}},
      supports_credentials=True)
 
 # Chemins basés sur le répertoire du script
