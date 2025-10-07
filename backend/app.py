@@ -27,8 +27,14 @@ ADMIN_KEY = os.getenv('ADMIN_KEY', 'dev-admin-key')
 
 app.config['SECRET_KEY'] = SECRET_KEY
 
-# Configuration SQLAlchemy
-engine = create_engine(DATABASE_URL)
+# Configuration SQLAlchemy (connexion sécurisée Supabase IPv4)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"sslmode": "require"},
+    pool_pre_ping=True,
+    pool_size=5,          # Taille modérée pour Render (évite surcharge)
+    max_overflow=10       # Connexions temporaires supplémentaires
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
