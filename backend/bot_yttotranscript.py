@@ -21,8 +21,18 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from playwright_stealth import stealth_sync
 
 console = Console()
-OUT_DIR = Path("transcripts")
+
+# Utiliser /tmp/transcripts sur Render (dossier writable)
+import os
+if os.path.exists("/tmp"):
+    # Sur Render ou Linux
+    OUT_DIR = Path("/tmp/transcripts")
+else:
+    # Sur Windows (développement local)
+    OUT_DIR = Path("transcripts")
+
 OUT_DIR.mkdir(exist_ok=True)
+print(f"📁 Dossier de sortie: {OUT_DIR}")
 
 URLS_FILE = Path("urls.txt")
 
@@ -417,13 +427,24 @@ def main():
         for url in urls:
             process_single_url(pw, url)
 
+    # Compter les fichiers générés
+    files_generated = 0
+    if OUT_DIR.exists():
+        transcript_files = list(OUT_DIR.glob("*.txt"))
+        files_generated = len(transcript_files)
+    
     console.print(Panel.fit("Termine OK", border_style="green"))
+    print(f"✅ Transcription réussie: {files_generated} fichiers générés")
     
     # Créer un fichier de signal de fin pour le frontend
     completion_file = Path("transcription_completed.txt")
     with open(completion_file, 'w', encoding='utf-8') as f:
-        f.write(f"completed:{len(urls)}:{len(urls)}")
+        f.write(f"completed:{files_generated}:{len(urls)}")
     console.print(f"[green]Signal de fin créé: {completion_file}[/green]")
+    
+    # Exit propre pour éviter les threads bloqués sur Render
+    import sys
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

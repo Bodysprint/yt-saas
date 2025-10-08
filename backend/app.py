@@ -75,6 +75,11 @@ URLS_FILE = BASE_DIR / "urls.txt"
 TRANSCRIPTS_DIR = BASE_DIR / "transcripts"
 TRANSCRIBE_LOG = BASE_DIR / "transcribe.out"
 
+# Chemins pour Render (dossier /tmp writable)
+RENDER_TMP_DIR = Path("/tmp")
+RENDER_TRANSCRIPTS_DIR = RENDER_TMP_DIR / "transcripts"
+RENDER_LOG_FILE = RENDER_TMP_DIR / "transcribe.out"
+
 # Créer le dossier transcripts s'il n'existe pas
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)
 
@@ -169,7 +174,7 @@ def can_user_transcribe(email):
 def _spawn_transcriber(script_path: Path):
     """
     Lance le script de transcription de manière compatible Windows/Linux
-    Redirige stdout et stderr vers le fichier de log transcribe.out
+    Redirige stdout et stderr vers le fichier de log /tmp/transcribe.out (Render)
     """
     global TRANSCRIBE_PROCESS
     
@@ -178,22 +183,38 @@ def _spawn_transcriber(script_path: Path):
         if not script_path.exists():
             raise FileNotFoundError(f"Script non trouvé: {script_path}")
         
-        # Ouvrir le fichier de log pour rediriger la sortie
-        with open(TRANSCRIBE_LOG, 'w', encoding='utf-8') as log_file:
-            # Lancer le processus avec Python natif (compatible Windows/Linux)
-            TRANSCRIBE_PROCESS = subprocess.Popen(
-                [sys.executable, str(script_path)],
-                cwd=str(BASE_DIR),
-                stdout=log_file,
-                stderr=subprocess.STDOUT,  # Rediriger stderr vers stdout
-                text=True,
-                bufsize=1,  # Ligne par ligne
-                universal_newlines=True
-            )
+        # Créer le dossier /tmp/transcripts s'il n'existe pas
+        RENDER_TRANSCRIPTS_DIR.mkdir(exist_ok=True)
         
-        logger.log_transcription("", "LANCÉ", f"PID: {TRANSCRIBE_PROCESS.pid}, Log: {TRANSCRIBE_LOG}")
+        # Utiliser le fichier de log dans /tmp (writable sur Render)
+        log_file_path = RENDER_LOG_FILE
+        
+        # Logger tous les chemins utilisés
+        logger.log_transcription("", "CHEMINS", f"Script: {script_path}")
+        logger.log_transcription("", "CHEMINS", f"Base dir: {BASE_DIR}")
+        logger.log_transcription("", "CHEMINS", f"Sortie transcripts: {RENDER_TRANSCRIPTS_DIR}")
+        logger.log_transcription("", "CHEMINS", f"Log file: {log_file_path}")
+        
+        print(f"🔧 Chemins utilisés:")
+        print(f"   Script: {script_path}")
+        print(f"   Base dir: {BASE_DIR}")
+        print(f"   Sortie transcripts: {RENDER_TRANSCRIPTS_DIR}")
+        print(f"   Log file: {log_file_path}")
+        
+        # Lancer le processus avec python3 (compatible Render)
+        TRANSCRIBE_PROCESS = subprocess.Popen(
+            ["python3", str(script_path)],
+            cwd=str(BASE_DIR),
+            stdout=open(log_file_path, 'w', encoding='utf-8'),
+            stderr=subprocess.STDOUT,  # Rediriger stderr vers stdout
+            text=True,
+            bufsize=1,  # Ligne par ligne
+            universal_newlines=True
+        )
+        
+        logger.log_transcription("", "LANCÉ", f"PID: {TRANSCRIBE_PROCESS.pid}, Log: {log_file_path}")
         print(f"Processus de transcription lancé avec PID: {TRANSCRIBE_PROCESS.pid}")
-        print(f"Sortie redirigée vers: {TRANSCRIBE_LOG}")
+        print(f"Sortie redirigée vers: {log_file_path}")
         
         return TRANSCRIBE_PROCESS
         
@@ -448,14 +469,38 @@ def transcribe_selected():
             
             print("Le script de transcription va traiter les vidéos...")
             
-            # Retourner immédiatement - la transcription continue en arrière-plan
-            return jsonify({
-                "message": f"Transcription démarrée ! Le script va traiter {len(urls)} vidéo(s)",
-                "process_id": TRANSCRIBE_PROCESS.pid,
-                "status": "started",
-                "log_file": str(TRANSCRIBE_LOG),
-                "note": "Vérifiez les logs pour suivre la progression"
-            }), 202
+            # Attendre que le processus se termine (pour Render)
+            import time
+            time.sleep(2)  # Attendre un peu pour que le script démarre
+            
+            # Vérifier le statut du processus
+            poll_result = TRANSCRIBE_PROCESS.poll()
+            if poll_result is not None:
+                # Le processus s'est terminé, vérifier les fichiers générés
+                files_generated = 0
+                if RENDER_TRANSCRIPTS_DIR.exists():
+                    transcript_files = list(RENDER_TRANSCRIPTS_DIR.glob("*.txt"))
+                    files_generated = len(transcript_files)
+                
+                logger.log_transcription("", "TERMINÉ", f"Code: {poll_result}, Fichiers: {files_generated}")
+                
+                return jsonify({
+                    "message": f"✅ Transcription terminée ! {files_generated} fichier(s) généré(s)",
+                    "process_id": TRANSCRIBE_PROCESS.pid,
+                    "status": "completed",
+                    "files_generated": files_generated,
+                    "log_file": str(RENDER_LOG_FILE),
+                    "transcripts_dir": str(RENDER_TRANSCRIPTS_DIR)
+                }), 200
+            else:
+                # Le processus est encore en cours
+                return jsonify({
+                    "message": f"Transcription démarrée ! Le script va traiter {len(urls)} vidéo(s)",
+                    "process_id": TRANSCRIBE_PROCESS.pid,
+                    "status": "started",
+                    "log_file": str(RENDER_LOG_FILE),
+                    "note": "Vérifiez les logs pour suivre la progression"
+                }), 202
                 
         except Exception as e:
             print(f"Erreur lors du lancement: {e}")
@@ -499,14 +544,38 @@ def transcribe_bulk():
             
             print(f"Processus de transcription lancé avec PID: {TRANSCRIBE_PROCESS.pid}")
             
-            # Retourner immédiatement - la transcription continue en arrière-plan
-            return jsonify({
-                "message": "Transcription démarrée ! Le script va traiter les vidéos en arrière-plan",
-                "process_id": TRANSCRIBE_PROCESS.pid,
-                "status": "started",
-                "log_file": str(TRANSCRIBE_LOG),
-                "note": "Vérifiez les logs pour suivre la progression"
-            }), 202
+            # Attendre que le processus se termine (pour Render)
+            import time
+            time.sleep(2)  # Attendre un peu pour que le script démarre
+            
+            # Vérifier le statut du processus
+            poll_result = TRANSCRIBE_PROCESS.poll()
+            if poll_result is not None:
+                # Le processus s'est terminé, vérifier les fichiers générés
+                files_generated = 0
+                if RENDER_TRANSCRIPTS_DIR.exists():
+                    transcript_files = list(RENDER_TRANSCRIPTS_DIR.glob("*.txt"))
+                    files_generated = len(transcript_files)
+                
+                logger.log_transcription("", "TERMINÉ", f"Code: {poll_result}, Fichiers: {files_generated}")
+                
+                return jsonify({
+                    "message": f"✅ Transcription terminée ! {files_generated} fichier(s) généré(s)",
+                    "process_id": TRANSCRIBE_PROCESS.pid,
+                    "status": "completed",
+                    "files_generated": files_generated,
+                    "log_file": str(RENDER_LOG_FILE),
+                    "transcripts_dir": str(RENDER_TRANSCRIPTS_DIR)
+                }), 200
+            else:
+                # Le processus est encore en cours
+                return jsonify({
+                    "message": "Transcription démarrée ! Le script va traiter les vidéos en arrière-plan",
+                    "process_id": TRANSCRIBE_PROCESS.pid,
+                    "status": "started",
+                    "log_file": str(RENDER_LOG_FILE),
+                    "note": "Vérifiez les logs pour suivre la progression"
+                }), 202
                 
         except FileNotFoundError as e:
             print(f"Erreur fichier non trouvé: {e}")
@@ -826,13 +895,21 @@ def transcribe_log():
     """Permet de lire les dernières lignes du log de transcription."""
     try:
         n = int(request.args.get("n", 200))
-        if not TRANSCRIBE_LOG.exists():
-            return jsonify({"log": "<aucun log>"}), 200
         
-        with open(TRANSCRIBE_LOG, "r", encoding="utf-8") as f:
+        # Utiliser le fichier de log Render si disponible, sinon le local
+        log_file = RENDER_LOG_FILE if RENDER_LOG_FILE.exists() else TRANSCRIBE_LOG
+        
+        if not log_file.exists():
+            return jsonify({"log": "<aucun log>", "log_file": str(log_file)}), 200
+        
+        with open(log_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
-        return jsonify({"log": "".join(lines[-n:])}), 200
+        return jsonify({
+            "log": "".join(lines[-n:]),
+            "log_file": str(log_file),
+            "total_lines": len(lines)
+        }), 200
     except Exception as e:
         return jsonify({"error": f"Erreur lors de la lecture du log: {str(e)}"}), 500
 
