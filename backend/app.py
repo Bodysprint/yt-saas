@@ -4,6 +4,7 @@ import os
 import json
 import subprocess
 import sys
+import platform
 from pathlib import Path
 import hashlib
 from logger import logger
@@ -33,11 +34,6 @@ ADMIN_KEY = os.getenv('ADMIN_KEY', 'dev-admin-key')
 app.config['SECRET_KEY'] = SECRET_KEY
 
 # Configuration SQLAlchemy (connexion sécurisée Supabase IPv4)
-<<<<<<< HEAD
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"sslmode": "require"},
-=======
 # Détecter le type de base de données pour les arguments de connexion
 connect_args = {}
 if DATABASE_URL.startswith('postgresql://'):
@@ -46,7 +42,6 @@ if DATABASE_URL.startswith('postgresql://'):
 engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
->>>>>>> 43cc4e3 (final deployment - ready for Render)
     pool_pre_ping=True,
     pool_size=5,          # Taille modérée pour Render (évite surcharge)
     max_overflow=10       # Connexions temporaires supplémentaires
@@ -78,6 +73,7 @@ USERS_FILE = BASE_DIR / "users.json"
 CHANNELS_FILE = BASE_DIR / "channels.txt"
 URLS_FILE = BASE_DIR / "urls.txt"
 TRANSCRIPTS_DIR = BASE_DIR / "transcripts"
+TRANSCRIBE_LOG = BASE_DIR / "transcribe.out"
 
 # Créer le dossier transcripts s'il n'existe pas
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)
@@ -169,6 +165,41 @@ def can_user_transcribe(email):
         return True, f"Essais restants: {TRIAL_LIMIT - user.trial_count}"
     
     return False, f"Limite d'essais atteinte ({TRIAL_LIMIT})"
+
+def _spawn_transcriber(script_path: Path):
+    """
+    Lance le script de transcription de manière compatible Windows/Linux
+    Redirige stdout et stderr vers le fichier de log transcribe.out
+    """
+    global TRANSCRIBE_PROCESS
+    
+    try:
+        # Vérifier que le script existe
+        if not script_path.exists():
+            raise FileNotFoundError(f"Script non trouvé: {script_path}")
+        
+        # Ouvrir le fichier de log pour rediriger la sortie
+        with open(TRANSCRIBE_LOG, 'w', encoding='utf-8') as log_file:
+            # Lancer le processus avec Python natif (compatible Windows/Linux)
+            TRANSCRIBE_PROCESS = subprocess.Popen(
+                [sys.executable, str(script_path)],
+                cwd=str(BASE_DIR),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,  # Rediriger stderr vers stdout
+                text=True,
+                bufsize=1,  # Ligne par ligne
+                universal_newlines=True
+            )
+        
+        logger.log_transcription("", "LANCÉ", f"PID: {TRANSCRIBE_PROCESS.pid}, Log: {TRANSCRIBE_LOG}")
+        print(f"Processus de transcription lancé avec PID: {TRANSCRIBE_PROCESS.pid}")
+        print(f"Sortie redirigée vers: {TRANSCRIBE_LOG}")
+        
+        return TRANSCRIBE_PROCESS
+        
+    except Exception as e:
+        logger.log_error(f"Erreur lors du lancement de la transcription: {str(e)}")
+        raise e
 
 # Décorateur pour l'authentification admin
 def admin_required(f):
@@ -412,20 +443,9 @@ def transcribe_selected():
                 print(f"Contenu de urls.txt: {content[:200]}...")
         
         try:
-            # Lancer directement le script avec cmd pour garantir l'affichage
-            cmd_command = f'cmd /c "cd /d {BASE_DIR} && python bot_yttotranscript.py"'
-            print(f"Commande exécutée: {cmd_command}")
-            TRANSCRIBE_PROCESS = subprocess.Popen(
-                cmd_command,
-                shell=True,
-                stdout=None,  # Pas de capture pour permettre l'affichage
-                stderr=None,  # Pas de capture pour permettre l'affichage
-                text=True,
-                creationflags=subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, 'CREATE_NEW_CONSOLE') else 0
-            )
+            # Utiliser la nouvelle fonction compatible Windows/Linux
+            TRANSCRIBE_PROCESS = _spawn_transcriber(script_path)
             
-            logger.log_transcription("", "LANCÉ", f"PID: {TRANSCRIBE_PROCESS.pid}")
-            print(f"Processus de transcription lancé avec PID: {TRANSCRIBE_PROCESS.pid}")
             print("Le script de transcription va traiter les vidéos...")
             
             # Retourner immédiatement - la transcription continue en arrière-plan
@@ -433,6 +453,7 @@ def transcribe_selected():
                 "message": f"Transcription démarrée ! Le script va traiter {len(urls)} vidéo(s)",
                 "process_id": TRANSCRIBE_PROCESS.pid,
                 "status": "started",
+                "log_file": str(TRANSCRIBE_LOG),
                 "note": "Vérifiez les logs pour suivre la progression"
             }), 202
                 
@@ -464,50 +485,26 @@ def transcribe_bulk():
             }), 403
     
     try:
-        # Lancer le script de transcription existant
-        script_path = BASE_DIR / "lancer_bot (2).bat"
+        # Utiliser directement le script Python (compatible Windows/Linux)
+        script_path = BASE_DIR / "bot_yttotranscript.py"
         print(f"Lancement de la transcription: {script_path}")
         
-        # Vérifier que le fichier .bat existe
+        # Vérifier que le script existe
         if not script_path.exists():
-            print(f"Fichier .bat non trouvé: {script_path}")
-            # Fallback: utiliser directement le script Python
-            script_path = BASE_DIR / "bot_yttotranscript.py"
-            if not script_path.exists():
-                return jsonify({"error": "Script de transcription non trouvé"}), 500
-            print(f"Utilisation du script Python: {script_path}")
+            return jsonify({"error": "Script de transcription non trouvé"}), 500
         
-        # Lancer en arrière-plan avec Popen (asynchrone)
+        # Utiliser la nouvelle fonction compatible Windows/Linux
         try:
-            # Essayer d'abord avec le .bat
-            if str(script_path).endswith('.bat'):
-                TRANSCRIBE_PROCESS = subprocess.Popen(
-                    ["cmd", "/c", str(script_path)],
-                    cwd=str(BASE_DIR),
-                    stdout=None,  # Pas de capture pour permettre l'affichage
-                    stderr=None,  # Pas de capture pour permettre l'affichage
-                    text=True,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, 'CREATE_NEW_CONSOLE') else 0
-                )
-            else:
-                # Fallback: script Python direct
-                TRANSCRIBE_PROCESS = subprocess.Popen(
-                    [sys.executable, str(script_path)],
-                    cwd=str(BASE_DIR),
-                    stdout=None,  # Pas de capture pour permettre l'affichage
-                    stderr=None,  # Pas de capture pour permettre l'affichage
-                    text=True,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, 'CREATE_NEW_CONSOLE') else 0
-                )
+            TRANSCRIBE_PROCESS = _spawn_transcriber(script_path)
             
             print(f"Processus de transcription lancé avec PID: {TRANSCRIBE_PROCESS.pid}")
-            logger.log_transcription("", "LANCÉ", f"PID: {TRANSCRIBE_PROCESS.pid}")
             
             # Retourner immédiatement - la transcription continue en arrière-plan
             return jsonify({
                 "message": "Transcription démarrée ! Le script va traiter les vidéos en arrière-plan",
                 "process_id": TRANSCRIBE_PROCESS.pid,
                 "status": "started",
+                "log_file": str(TRANSCRIBE_LOG),
                 "note": "Vérifiez les logs pour suivre la progression"
             }), 202
                 
@@ -823,6 +820,21 @@ def get_transcribe_status():
     except Exception as e:
         print(f"DEBUG: Erreur dans get_transcribe_status: {e}")
         return jsonify({"error": f"Erreur lors de la vérification du statut: {str(e)}"}), 500
+
+@app.route("/api/transcribe/log", methods=["GET"])
+def transcribe_log():
+    """Permet de lire les dernières lignes du log de transcription."""
+    try:
+        n = int(request.args.get("n", 200))
+        if not TRANSCRIBE_LOG.exists():
+            return jsonify({"log": "<aucun log>"}), 200
+        
+        with open(TRANSCRIBE_LOG, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        return jsonify({"log": "".join(lines[-n:])}), 200
+    except Exception as e:
+        return jsonify({"error": f"Erreur lors de la lecture du log: {str(e)}"}), 500
 
 @app.route("/api/transcription/status", methods=["GET"])
 def get_transcription_status():
