@@ -1,0 +1,115 @@
+# ==========================
+# 🧠 BASE GLOBALE
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.dll
+*.log
+*.pot
+*.pyproj
+*.pdb
+*.tmp
+*.bak
+*.swp
+*.swo
+*.DS_Store
+*.env
+*.env.*
+*.sqlite3
+*.db
+*.pid
+*.seed
+*.out
+*.txt
+
+# ==========================
+# ⚙️ PYTHON / FLASK / FASTAPI
+# ==========================
+.env
+instance/
+.vscode/
+.idea/
+.env.local
+config.json
+.mypy_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+nosetests.xml
+test_*.py
+__pycache__/
+backend/__pycache__/
+frontend/__pycache__/
+backend/session_log.txt
+
+# ==========================
+# 🎭 PLAYWRIGHT / SCRAPING
+# ==========================
+playwright-report/
+playwright/.cache/
+playwright/.local-browsers/
+playwright/.user-data-dir/
+output/
+transcripts/
+transcripts_*/ 
+*.webm
+*.mp4
+*.wav
+*.mp3
+screenshots/
+videos/
+downloads/
+
+# ==========================
+# 📦 BUILD / DEPLOY
+# ==========================
+node_modules/
+dist/
+build/
+*.lock
+*.cache/
+*.tmp/
+tmp/
+logs/
+*.zip
+*.tar.gz
+*.egg-info/
+.eggs/
+*.whl
+
+# ==========================
+# 🧰 RENDER / DOCKER / SYSTEM
+# ==========================
+*.render
+Dockerfile.*
+docker-compose.yml
+.env.production
+*.crt
+*.pem
+*.key
+
+# ==========================
+# 🧑‍💻 IDE / OS / CURSOR
+# ==========================
+.vscode/
+.idea/
+.history/
+cursor/
+cursor.json
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# ==========================
+# 🧬 GIT / TEMP
+# ==========================
+*.orig
+*.rej
+*.merge_file*
+*.diff
+*.patch
+.gitignore~
+.gitmodules~
